@@ -2,51 +2,83 @@ import { KnowledgeBase } from './KnowledgeBase.js';
 import { Memory } from './Memory.js';
 import { Planner } from './Planner.js'; // Le planificateur GOAP
 
+// ... (imports)
+
 export class EngineKnow {
   constructor(config) {
-    this.goal = config.goal;
-    this.identity = config.identity;
+    // ... (initialisation de knowledge, memory, etc.)
+    this.actions = config.actions || [];
+    this.planner = new Planner();
 
-    // Le cerveau a accès à la connaissance universelle
-    this.knowledge = new KnowledgeBase();
-    if (config.corpus) {
-      this.knowledge.load(config.corpus);
-    }
-    
-    // Et à sa propre mémoire
-    this.memory = new Memory(config.memoryId);
-
-    // Le cerveau a un ensemble d'actions qu'il peut faire
-    this.actions = config.actions;
-    
-    this.planner = new Planner(this.actions);
+    this.currentPlan = null; // Le plan en cours d'exécution
   }
 
-  // La fonction principale appelée à chaque frame
   think(gameState) {
-    console.log(`[${this.identity.name}] Mon objectif: ${this.goal}. Je réfléchis...`);
-
-    // 1. Fusionner les connaissances (corpus + mémoire)
-    const worldKnowledge = { ...this.knowledge.facts, ...this.memory.learnedFacts };
-    
-    // 2. Demander au planificateur de trouver un plan
-    const plan = this.planner.createPlan(this.goal, gameState, worldKnowledge);
-    
-    if (plan && plan.length > 0) {
-      // Le plan est une séquence d'actions, on retourne la première
-      console.log(`[${this.identity.name}] Mon plan: ${plan.map(a => a.name).join(' -> ')}`);
-      return plan[0]; // Retourne la prochaine action à exécuter
+    // 1. A-t-on déjà un plan et est-il toujours valide ?
+    if (this.currentPlan && this.currentPlan.length > 0) {
+      const nextAction = this.currentPlan[0];
+      // Vérifier si les préconditions de la prochaine action sont toujours vraies
+      if (this.isActionPossible(nextAction, gameState)) {
+        // Le plan est toujours bon, on continue
+        return this.executeNextAction();
+      } else {
+        // Le plan a échoué ! (Ex: le joueur a disparu)
+        console.log(`[${this.identity.name}] Mon plan a échoué ! Je dois réfléchir à nouveau.`);
+        this.currentPlan = null; // On abandonne le plan
+      }
     }
 
-    console.log(`[${this.identity.name}] Je ne sais pas quoi faire.`);
-    return { name: 'idle' }; // Action par défaut
+    // 2. Si pas de plan, en créer un nouveau
+    console.log(`[${this.identity.name}] Objectif: ${this.goal}. Je cherche un plan...`);
+    
+    // On doit définir un "goalState" à partir du "goal" textuel.
+    // Pour l'instant, on fait une conversion simple.
+    const goalState = { [this.goal]: true };
+    
+    const worldState = this.buildWorldState(gameState); // Créer l'état du monde
+
+    this.currentPlan = this.planner.createPlan(goalState, worldState, this.actions);
+
+    if (this.currentPlan && this.currentPlan.length > 0) {
+      console.log(`[${this.identity.name}] Nouveau plan trouvé: ${this.currentPlan.map(a => a.name).join(' -> ')}`);
+      return this.executeNextAction();
+    }
+
+    console.log(`[${this.identity.name}] Aucun plan trouvé pour atteindre mon objectif.`);
+    return { name: 'idle' };
+  }
+  
+  // Exécute la prochaine action du plan
+  executeNextAction() {
+    const actionToExecute = this.currentPlan.shift(); // Récupère et retire la 1ère action
+    console.log(`[${this.identity.name}] Action suivante: ${actionToExecute.name}`);
+    return actionToExecute;
+  }
+  
+  // Crée un objet simple représentant l'état du monde pour le planificateur
+  buildWorldState(gameState) {
+    // C'est au développeur de jeu de fournir les "faits" du monde
+    // Exemple simple :
+    return {
+      voitLeJoueur: gameState.isPlayerVisible,
+      aUneArme: gameState.bot.hasWeapon,
+      estEnPoste: gameState.bot.atPost,
+      joueurElimine: gameState.player.isDead,
+      // ...etc
+    };
   }
 
-  // Le développeur donne un feedback au cerveau
+  isActionPossible(action, gameState) {
+    const worldState = this.buildWorldState(gameState);
+    for (const key in action.preconditions) {
+      if (action.preconditions[key] !== worldState[key]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   learn(action, result) {
-    // Logique pour analyser le résultat et mettre à jour la mémoire
-    // Exemple : si l'action était "attaquer" et le résultat "dégâts_faibles",
-    // le bot peut en déduire une résistance et l'enregistrer dans sa mémoire.
-    this.memory.recordFact(/* ... */);
+    // ... La logique d'apprentissage vient ici plus tard
   }
 }
